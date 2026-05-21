@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from math import ceil
 from typing import Any, Protocol
 
 from app.analytics.repository import MongoAnalyticsRepository
@@ -10,12 +9,6 @@ from app.analytics.schemas import (
     CatalogAlbumSnapshotEvent,
     CatalogArtistSnapshotEvent,
     CatalogTrackSnapshotEvent,
-    ContentType,
-    CreateModerationReportRequest,
-    ModerationReportResponse,
-    PaginatedModerationReportsResponse,
-    PaginationResponse,
-    ReportStatus,
     TrackMetricResponse,
     TrackPlaybackCountedEvent,
     UserLoggedInEvent,
@@ -88,23 +81,6 @@ class AnalyticsRepository(Protocol):
     async def get_top_artists(self, limit: int) -> list[dict[str, Any]]: ...
 
     async def get_unique_listener_counts_by_artists(self, artist_ids: list[str]) -> dict[str, int]: ...
-
-    async def create_moderation_report(
-        self,
-        content_type: ContentType,
-        content_id: str,
-        content_title: str,
-        reporter_user_id: str,
-        reason: str,
-    ) -> dict[str, Any]: ...
-
-    async def list_moderation_reports(
-        self,
-        content_type: ContentType | None,
-        status: ReportStatus | None,
-        page: int,
-        limit: int,
-    ) -> tuple[list[dict[str, Any]], int]: ...
 
 
 class AnalyticsService:
@@ -231,47 +207,6 @@ class AnalyticsService:
             ],
         )
 
-    async def create_moderation_report(
-        self,
-        request: CreateModerationReportRequest,
-        reporter_user_id: str,
-    ) -> ModerationReportResponse:
-        """Create a moderation report."""
-        report = await self._repository.create_moderation_report(
-            content_type=request.content_type,
-            content_id=request.content_id,
-            content_title=request.content_title,
-            reporter_user_id=reporter_user_id,
-            reason=request.reason,
-        )
-        return map_moderation_report(report)
-
-    async def list_moderation_reports(
-        self,
-        content_type: ContentType | None,
-        status: ReportStatus | None,
-        page: int,
-        limit: int,
-    ) -> PaginatedModerationReportsResponse:
-        """Return moderation reports with pagination metadata."""
-        reports, total = await self._repository.list_moderation_reports(
-            content_type=content_type,
-            status=status,
-            page=page,
-            limit=limit,
-        )
-        total_pages = ceil(total / limit) if total else 0
-        return PaginatedModerationReportsResponse(
-            data=[map_moderation_report(report) for report in reports],
-            pagination=PaginationResponse(
-                page=page,
-                limit=limit,
-                total=total,
-                totalPages=total_pages,
-            ),
-        )
-
-
 def map_track_metric(row: dict[str, Any], unique_listeners: int) -> TrackMetricResponse:
     """Map a Mongo track projection into an API response."""
     return TrackMetricResponse(
@@ -292,30 +227,6 @@ def map_artist_metric(row: dict[str, Any], unique_listeners: int) -> ArtistMetri
         plays=int(row.get("plays") or 0),
         uniqueListeners=unique_listeners,
     )
-
-
-def map_moderation_report(row: dict[str, Any]) -> ModerationReportResponse:
-    """Map a Mongo moderation report into an API response."""
-    return ModerationReportResponse(
-        reportId=str(row.get("report_id") or ""),
-        contentType=ContentType(str(row.get("content_type"))),
-        contentId=str(row.get("content_id") or ""),
-        contentTitle=str(row.get("content_title") or "Contenido reportado"),
-        reporterUserId=str(row.get("reporter_user_id") or ""),
-        reason=str(row.get("reason") or ""),
-        status=ReportStatus(str(row.get("status"))),
-        createdAt=read_datetime(row.get("created_at")),
-        updatedAt=read_datetime(row.get("updated_at")),
-    )
-
-
-def read_datetime(value: object) -> datetime:
-    """Read a stored datetime with a UTC fallback."""
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value.astimezone(UTC)
-    return datetime.now(UTC)
 
 
 def optional_string(value: object) -> str | None:

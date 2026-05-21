@@ -1,25 +1,7 @@
 from datetime import UTC, datetime
-from enum import Enum
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-
-class ContentType(str, Enum):
-    """Moderation content types known by Analytics Service."""
-
-    TRACK = "TRACK"
-    ALBUM = "ALBUM"
-    USER = "USER"
-
-
-class ReportStatus(str, Enum):
-    """Moderation report lifecycle states."""
-
-    REPORTED = "REPORTED"
-    UNDER_REVIEW = "UNDER_REVIEW"
-    RESOLVED = "RESOLVED"
-    DISMISSED = "DISMISSED"
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TrackPlaybackCountedEvent(BaseModel):
@@ -133,62 +115,6 @@ class AdminAnalyticsSummaryResponse(BaseModel):
     total_plays: int = Field(..., alias="totalPlays")
     top_tracks: list[TrackMetricResponse] = Field(..., alias="topTracks")
     top_artists: list[ArtistMetricResponse] = Field(..., alias="topArtists")
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class CreateModerationReportRequest(BaseModel):
-    """Request body used to create a moderation report."""
-
-    content_type: ContentType = Field(..., alias="contentType")
-    content_id: str = Field(..., min_length=1, max_length=120, alias="contentId")
-    content_title: str = Field(default="Contenido reportado", max_length=240, alias="contentTitle")
-    reason: str = Field(..., min_length=3, max_length=500)
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    @field_validator("content_title", mode="before")
-    @classmethod
-    def default_blank_title(cls, value: object) -> str:
-        """Use a stable fallback when clients omit a title."""
-        if value is None:
-            return "Contenido reportado"
-        text = str(value).strip()
-        return text or "Contenido reportado"
-
-
-class ModerationReportResponse(BaseModel):
-    """Moderation report returned to administrators."""
-
-    report_id: str = Field(..., alias="reportId")
-    content_type: ContentType = Field(..., alias="contentType")
-    content_id: str = Field(..., alias="contentId")
-    content_title: str = Field(..., alias="contentTitle")
-    reporter_user_id: str = Field(..., alias="reporterUserId")
-    reason: str
-    status: ReportStatus
-    created_at: datetime = Field(..., alias="createdAt")
-    updated_at: datetime = Field(..., alias="updatedAt")
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class PaginationResponse(BaseModel):
-    """Pagination metadata for list responses."""
-
-    page: int
-    limit: int
-    total: int
-    total_pages: int = Field(..., alias="totalPages")
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class PaginatedModerationReportsResponse(BaseModel):
-    """Paginated moderation report response."""
-
-    data: list[ModerationReportResponse]
-    pagination: PaginationResponse
 
     model_config = ConfigDict(populate_by_name=True)
 

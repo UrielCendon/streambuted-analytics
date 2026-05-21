@@ -15,7 +15,6 @@ class FakeRepository:
         self.catalog_tracks = []
         self.catalog_albums = []
         self.catalog_artists = []
-        self.reports = []
 
     async def ensure_indexes(self) -> None:
         return None
@@ -92,31 +91,6 @@ class FakeRepository:
 
     async def get_unique_listener_counts_by_artists(self, _artist_ids):
         return {"artist-1": 6}
-
-    async def create_moderation_report(
-        self,
-        content_type,
-        content_id,
-        content_title,
-        reporter_user_id,
-        reason,
-    ):
-        report = {
-            "report_id": "report-1",
-            "content_type": content_type.value,
-            "content_id": content_id,
-            "content_title": content_title,
-            "reporter_user_id": reporter_user_id,
-            "reason": reason,
-            "status": "REPORTED",
-            "created_at": datetime.now(UTC),
-            "updated_at": datetime.now(UTC),
-        }
-        self.reports.append(report)
-        return report
-
-    async def list_moderation_reports(self, *_args, **_kwargs):
-        return (self.reports, len(self.reports))
 
     def close(self) -> None:
         return None

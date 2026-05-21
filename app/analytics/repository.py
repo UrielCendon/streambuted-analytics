@@ -1,8 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
 
-from app.analytics.schemas import ContentType, ReportStatus
 from app.config import Settings
 
 PLAYBACK_EVENTS_COLLECTION = "playback_events"
@@ -12,11 +10,10 @@ ARTIST_METRICS_COLLECTION = "artist_metrics"
 CATALOG_ARTISTS_COLLECTION = "catalog_artists"
 CATALOG_ALBUMS_COLLECTION = "catalog_albums"
 CATALOG_TRACKS_COLLECTION = "catalog_tracks"
-MODERATION_REPORTS_COLLECTION = "moderation_reports"
 
 
 class MongoAnalyticsRepository:
-    """MongoDB repository for analytics projections and moderation reports."""
+    """MongoDB repository for analytics projections."""
 
     def __init__(self, client: Any, database_name: str) -> None:
         """Create the repository."""
@@ -29,7 +26,6 @@ class MongoAnalyticsRepository:
         self._catalog_artists = self._database[CATALOG_ARTISTS_COLLECTION]
         self._catalog_albums = self._database[CATALOG_ALBUMS_COLLECTION]
         self._catalog_tracks = self._database[CATALOG_TRACKS_COLLECTION]
-        self._moderation_reports = self._database[MODERATION_REPORTS_COLLECTION]
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "MongoAnalyticsRepository":
@@ -58,7 +54,6 @@ class MongoAnalyticsRepository:
         await self._catalog_albums.create_index("album_id", unique=True)
         await self._catalog_tracks.create_index("track_id", unique=True)
         await self._catalog_tracks.create_index([("artist_id", 1), ("status", 1)])
-        await self._moderation_reports.create_index([("content_type", 1), ("status", 1), ("created_at", -1)])
 
     async def record_playback(
         self,
@@ -429,61 +424,6 @@ class MongoAnalyticsRepository:
             str(row["_id"]): int(row.get("unique_listeners", 0))
             for row in rows
         }
-
-    async def create_moderation_report(
-        self,
-        content_type: ContentType,
-        content_id: str,
-        content_title: str,
-        reporter_user_id: str,
-        reason: str,
-    ) -> dict[str, Any]:
-        """Create a moderation report owned by Analytics Service."""
-        now = datetime.now(UTC)
-        report = {
-            "report_id": str(uuid4()),
-            "content_type": content_type.value,
-            "content_id": content_id,
-            "content_title": content_title,
-            "reporter_user_id": reporter_user_id,
-            "reason": reason,
-            "status": ReportStatus.REPORTED.value,
-            "created_at": now,
-            "updated_at": now,
-        }
-        await self._moderation_reports.insert_one(report)
-        return report
-
-    async def list_moderation_reports(
-        self,
-        content_type: ContentType | None,
-        status: ReportStatus | None,
-        page: int,
-        limit: int,
-    ) -> tuple[list[dict[str, Any]], int]:
-        """Return moderation reports with pagination."""
-        query: dict[str, Any] = {}
-        if content_type:
-            query["content_type"] = content_type.value
-        if status:
-            query["status"] = status.value
-        else:
-            query["status"] = {
-                "$in": [
-                    ReportStatus.REPORTED.value,
-                    ReportStatus.UNDER_REVIEW.value,
-                ]
-            }
-
-        total = await self._moderation_reports.count_documents(query)
-        cursor = (
-            self._moderation_reports.find(query)
-            .sort("created_at", -1)
-            .skip((page - 1) * limit)
-            .limit(limit)
-        )
-        items = await cursor.to_list(length=limit)
-        return (items, total)
 
     def close(self) -> None:
         """Close the MongoDB client."""

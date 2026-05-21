@@ -1,15 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Request
 
 from app.analytics.schemas import (
     AdminAnalyticsSummaryResponse,
     ArtistAnalyticsSummaryResponse,
-    ContentType,
-    CreateModerationReportRequest,
-    ModerationReportResponse,
-    PaginatedModerationReportsResponse,
-    ReportStatus,
 )
 from app.analytics.service import AnalyticsService
 from app.auth.jwt_validator import JwtValidator
@@ -80,105 +75,3 @@ async def get_admin_summary(
     """Return global analytics for administrators."""
     require_admin(current_user)
     return await analytics_service.get_admin_summary()
-
-
-@router.post(
-    "/moderation/reports",
-    response_model=ModerationReportResponse,
-    status_code=201,
-)
-async def create_moderation_report(
-    request: CreateModerationReportRequest,
-    current_user: AuthenticatedUser = Depends(get_current_user),
-    analytics_service: AnalyticsService = Depends(get_analytics_service),
-) -> ModerationReportResponse:
-    """Create a report that administrators can later review."""
-    return await analytics_service.create_moderation_report(
-        request=request,
-        reporter_user_id=current_user.subject,
-    )
-
-
-@router.get(
-    "/moderation/reports",
-    response_model=PaginatedModerationReportsResponse,
-)
-async def list_moderation_reports(
-    content_type: Annotated[ContentType | None, Query(alias="contentType")] = None,
-    status: ReportStatus | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    current_user: AuthenticatedUser = Depends(get_current_user),
-    analytics_service: AnalyticsService = Depends(get_analytics_service),
-) -> PaginatedModerationReportsResponse:
-    """Return moderation reports for administrators."""
-    require_admin(current_user)
-    return await analytics_service.list_moderation_reports(
-        content_type=content_type,
-        status=status,
-        page=page,
-        limit=limit,
-    )
-
-
-@router.get(
-    "/moderation/tracks/reports",
-    response_model=PaginatedModerationReportsResponse,
-)
-async def list_track_reports(
-    status: ReportStatus | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    current_user: AuthenticatedUser = Depends(get_current_user),
-    analytics_service: AnalyticsService = Depends(get_analytics_service),
-) -> PaginatedModerationReportsResponse:
-    """Return reported tracks for administrators."""
-    require_admin(current_user)
-    return await analytics_service.list_moderation_reports(
-        content_type=ContentType.TRACK,
-        status=status,
-        page=page,
-        limit=limit,
-    )
-
-
-@router.get(
-    "/moderation/albums/reports",
-    response_model=PaginatedModerationReportsResponse,
-)
-async def list_album_reports(
-    status: ReportStatus | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    current_user: AuthenticatedUser = Depends(get_current_user),
-    analytics_service: AnalyticsService = Depends(get_analytics_service),
-) -> PaginatedModerationReportsResponse:
-    """Return reported albums for administrators."""
-    require_admin(current_user)
-    return await analytics_service.list_moderation_reports(
-        content_type=ContentType.ALBUM,
-        status=status,
-        page=page,
-        limit=limit,
-    )
-
-
-@router.get(
-    "/moderation/users/reports",
-    response_model=PaginatedModerationReportsResponse,
-)
-async def list_user_reports(
-    status: ReportStatus | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    current_user: AuthenticatedUser = Depends(get_current_user),
-    analytics_service: AnalyticsService = Depends(get_analytics_service),
-) -> PaginatedModerationReportsResponse:
-    """Return reported user accounts for administrators."""
-    require_admin(current_user)
-    return await analytics_service.list_moderation_reports(
-        content_type=ContentType.USER,
-        status=status,
-        page=page,
-        limit=limit,
-    )

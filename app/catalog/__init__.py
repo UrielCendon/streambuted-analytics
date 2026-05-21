@@ -1,0 +1,1 @@
+"""Catalog HTTP client package."""

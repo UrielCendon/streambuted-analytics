@@ -185,6 +185,7 @@ def test_jwt_validator_maps_valid_token(monkeypatch) -> None:
         "sub": " user-1 ",
         "role": "ROLE_ADMIN",
     })
+    monkeypatch.setattr(validator, "_validate_account_state", lambda _token: None)
 
     user = validator.validate_authorization_header("Bearer token-1")
 
@@ -227,6 +228,35 @@ def test_jwt_validator_rejects_invalid_payload(monkeypatch) -> None:
     })
     with pytest.raises(AppError):
         validator.validate_token("token-1")
+
+
+def test_jwt_validator_rejects_suspended_account(monkeypatch) -> None:
+    validator = JwtValidator("http://jwks", "issuer")
+    monkeypatch.setattr("app.auth.jwt_validator.jwt.get_unverified_header", lambda _token: {
+        "alg": "RS256",
+        "kid": "kid-1",
+    })
+    monkeypatch.setattr(validator, "_get_signing_key", lambda _kid: "public-key")
+    monkeypatch.setattr(validator, "_decode_token", lambda _token, _key: {
+        "sub": "user-1",
+        "role": "ADMIN",
+    })
+
+    def reject_suspended(_token: str) -> None:
+        raise AppError(
+            403,
+            "AccountBannedException",
+            "La cuenta se encuentra suspendida.",
+            {"code": "ACCOUNT_BANNED"},
+        )
+
+    monkeypatch.setattr(validator, "_validate_account_state", reject_suspended)
+
+    with pytest.raises(AppError) as exc_info:
+        validator.validate_token("token-1")
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.code == "AccountBannedException"
 
 
 def test_jwt_validator_refreshes_and_caches_jwks(monkeypatch) -> None:

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from app.analytics.schemas import (
     AdminAnalyticsSummaryResponse,
     ArtistAnalyticsSummaryResponse,
+    PublicDiscoverySummaryResponse,
 )
 from app.analytics.service import AnalyticsService
 from app.auth.jwt_validator import JwtValidator
@@ -42,6 +43,29 @@ def require_admin(user: AuthenticatedUser) -> None:
 async def public_health() -> dict[str, str]:
     """Return public Analytics Service health for gateway checks."""
     return {"status": "healthy", "service": "analytics-service"}
+
+
+@router.get(
+    "/discovery/summary",
+    response_model=PublicDiscoverySummaryResponse,
+)
+async def get_discovery_summary(
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
+) -> PublicDiscoverySummaryResponse:
+    """Return public rankings for listener discovery."""
+    return await analytics_service.get_public_discovery_summary()
+
+
+@router.get(
+    "/artists/{artist_id}/public-summary",
+    response_model=ArtistAnalyticsSummaryResponse,
+)
+async def get_artist_public_summary(
+    artist_id: str,
+    analytics_service: AnalyticsService = Depends(get_analytics_service),
+) -> ArtistAnalyticsSummaryResponse:
+    """Return public track rankings for an artist profile."""
+    return await analytics_service.get_artist_summary(artist_id)
 
 
 @router.get(

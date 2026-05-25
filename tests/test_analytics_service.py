@@ -89,6 +89,18 @@ class FakeRepository:
             }
         ]
 
+    async def get_top_albums(self, _limit):
+        return [
+            {
+                "album_id": "album-1",
+                "artist_id": "artist-1",
+                "title": "Noches",
+                "artist_name": "Ada",
+                "cover_asset_id": "cover-1",
+                "plays": 8,
+            }
+        ]
+
     async def get_unique_listener_counts_by_artists(self, _artist_ids):
         return {"artist-1": 6}
 
@@ -164,6 +176,27 @@ def test_artist_summary_returns_totals_and_top_tracks() -> None:
     assert [track.track_id for track in summary.top_tracks] == ["track-1", "track-2"]
 
 
+def test_artist_summary_limits_top_tracks_to_ten() -> None:
+    class RepositoryWithManyTracks(FakeRepository):
+        async def get_artist_track_metrics(self, artist_id):
+            return [
+                {
+                    "track_id": f"track-{index}",
+                    "artist_id": artist_id,
+                    "track_title": f"Track {index}",
+                    "artist_name": "Ada",
+                    "plays": 20 - index,
+                }
+                for index in range(12)
+            ]
+
+    service = AnalyticsService(RepositoryWithManyTracks())
+
+    summary = asyncio.run(service.get_artist_summary("artist-1"))
+
+    assert len(summary.top_tracks) == 10
+
+
 def test_artist_endpoint_forbids_other_artist() -> None:
     app = create_app(
         repository=FakeRepository(),
@@ -200,3 +233,49 @@ def test_admin_endpoint_returns_global_summary() -> None:
     assert response.status_code == 200
     assert response.json()["totalPlays"] == 11
     assert response.json()["topArtists"][0]["artistName"] == "Ada"
+
+
+def test_discovery_endpoint_returns_public_album_and_artist_rankings() -> None:
+    app = create_app(
+        repository=FakeRepository(),
+        jwt_validator=FakeJwtValidator(
+            AuthenticatedUser(subject="listener-1", role=UserRole.LISTENER)
+        ),
+        start_consumer=False,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/analytics/discovery/summary")
+
+    assert response.status_code == 200
+    assert response.json()["topAlbums"][0]["title"] == "Noches"
+    assert response.json()["topArtists"][0]["artistName"] == "Ada"
+
+
+def test_discovery_summary_defaults_legacy_missing_play_counts_to_zero() -> None:
+    class LegacyRepository(FakeRepository):
+        async def get_top_albums(self, _limit):
+            return [
+                {
+                    "album_id": "album-1",
+                    "artist_id": "artist-1",
+                    "title": "Noches",
+                    "artist_name": None,
+                    "cover_asset_id": None,
+                    "plays": None,
+                }
+            ]
+
+        async def get_top_artists(self, _limit):
+            return [
+                {
+                    "artist_id": "artist-1",
+                    "artist_name": None,
+                    "plays": None,
+                }
+            ]
+
+    summary = asyncio.run(AnalyticsService(LegacyRepository()).get_public_discovery_summary())
+
+    assert summary.top_albums[0].plays == 0
+    assert summary.top_artists[0].plays == 0

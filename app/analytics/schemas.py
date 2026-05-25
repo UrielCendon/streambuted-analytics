@@ -48,6 +48,7 @@ class CatalogAlbumSnapshotEvent(BaseModel):
     album_id: str = Field(..., alias="albumId")
     artist_id: str = Field(..., alias="artistId")
     title: str
+    cover_asset_id: str | None = Field(default=None, alias="coverAssetId")
     status: str
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC), alias="occurredAt")
 
@@ -94,6 +95,19 @@ class ArtistMetricResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class AlbumMetricResponse(BaseModel):
+    """Album metric row for public discovery dashboards."""
+
+    album_id: str = Field(..., alias="albumId")
+    artist_id: str = Field(..., alias="artistId")
+    title: str
+    artist_name: str | None = Field(default=None, alias="artistName")
+    cover_asset_id: str | None = Field(default=None, alias="coverAssetId")
+    plays: int
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ArtistAnalyticsSummaryResponse(BaseModel):
     """Aggregated metrics for an artist dashboard."""
 
@@ -114,6 +128,15 @@ class AdminAnalyticsSummaryResponse(BaseModel):
     monthly_active_users: int = Field(..., alias="monthlyActiveUsers")
     total_plays: int = Field(..., alias="totalPlays")
     top_tracks: list[TrackMetricResponse] = Field(..., alias="topTracks")
+    top_artists: list[ArtistMetricResponse] = Field(..., alias="topArtists")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PublicDiscoverySummaryResponse(BaseModel):
+    """Public rankings displayed on the listener home page."""
+
+    top_albums: list[AlbumMetricResponse] = Field(..., alias="topAlbums")
     top_artists: list[ArtistMetricResponse] = Field(..., alias="topArtists")
 
     model_config = ConfigDict(populate_by_name=True)

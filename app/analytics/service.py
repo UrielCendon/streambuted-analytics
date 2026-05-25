@@ -4,6 +4,7 @@ from typing import Any, Protocol
 from app.analytics.repository import MongoAnalyticsRepository
 from app.analytics.schemas import (
     AdminAnalyticsSummaryResponse,
+    AlbumMetricResponse,
     ArtistAnalyticsSummaryResponse,
     ArtistMetricResponse,
     CatalogAlbumSnapshotEvent,
@@ -11,6 +12,7 @@ from app.analytics.schemas import (
     CatalogTrackSnapshotEvent,
     TrackMetricResponse,
     TrackPlaybackCountedEvent,
+    PublicDiscoverySummaryResponse,
     UserLoggedInEvent,
     unwrap_event_payload,
 )
@@ -42,6 +44,7 @@ class AnalyticsRepository(Protocol):
         album_id: str,
         artist_id: str,
         title: str,
+        cover_asset_id: str | None,
         status: str,
         occurred_at: datetime,
     ) -> bool: ...
@@ -79,6 +82,8 @@ class AnalyticsRepository(Protocol):
     async def get_top_tracks(self, limit: int) -> list[dict[str, Any]]: ...
 
     async def get_top_artists(self, limit: int) -> list[dict[str, Any]]: ...
+
+    async def get_top_albums(self, limit: int) -> list[dict[str, Any]]: ...
 
     async def get_unique_listener_counts_by_artists(self, artist_ids: list[str]) -> dict[str, int]: ...
 
@@ -123,6 +128,7 @@ class AnalyticsService:
                 album_id=event.album_id,
                 artist_id=event.artist_id,
                 title=event.title,
+                cover_asset_id=event.cover_asset_id,
                 status=event.status,
                 occurred_at=event.occurred_at,
             )
@@ -171,7 +177,7 @@ class AnalyticsService:
             artistId=artist_id,
             totalPlays=total_plays,
             tracks=tracks,
-            topTracks=tracks[:5],
+            topTracks=tracks[:10],
             averageDailyUniqueListeners=average_unique,
             averageDailyPlays=average_plays,
         )
@@ -207,6 +213,30 @@ class AnalyticsService:
             ],
         )
 
+    async def get_public_discovery_summary(self) -> PublicDiscoverySummaryResponse:
+        """Return public rankings for listener discovery surfaces."""
+        top_album_rows = await self._repository.get_top_albums(10)
+        top_artist_rows = await self._repository.get_top_artists(10)
+        artist_ids = [
+            str(row.get("artist_id"))
+            for row in top_artist_rows
+            if row.get("artist_id")
+        ]
+        unique_listeners_by_artist = await self._repository.get_unique_listener_counts_by_artists(
+            artist_ids
+        )
+
+        return PublicDiscoverySummaryResponse(
+            topAlbums=[map_album_metric(row) for row in top_album_rows],
+            topArtists=[
+                map_artist_metric(
+                    row,
+                    unique_listeners_by_artist.get(str(row.get("artist_id")), 0),
+                )
+                for row in top_artist_rows
+            ],
+        )
+
 def map_track_metric(row: dict[str, Any], unique_listeners: int) -> TrackMetricResponse:
     """Map a Mongo track projection into an API response."""
     return TrackMetricResponse(
@@ -226,6 +256,18 @@ def map_artist_metric(row: dict[str, Any], unique_listeners: int) -> ArtistMetri
         artistName=str(row.get("artist_name") or "Unknown artist"),
         plays=int(row.get("plays") or 0),
         uniqueListeners=unique_listeners,
+    )
+
+
+def map_album_metric(row: dict[str, Any]) -> AlbumMetricResponse:
+    """Map a Mongo album aggregate into an API response."""
+    return AlbumMetricResponse(
+        albumId=str(row.get("album_id") or ""),
+        artistId=str(row.get("artist_id") or ""),
+        title=str(row.get("title") or "Unknown album"),
+        artistName=optional_string(row.get("artist_name")),
+        coverAssetId=optional_string(row.get("cover_asset_id")),
+        plays=int(row.get("plays") or 0),
     )
 
 

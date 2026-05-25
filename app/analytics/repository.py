@@ -67,6 +67,8 @@ class MongoAnalyticsRepository:
         normalized_counted_at = ensure_utc(counted_at)
         track = await self._catalog_tracks.find_one({"track_id": track_id})
         artist_id = optional_string(track.get("artist_id")) if track else None
+        album_id = optional_string(track.get("album_id")) if track else None
+        track_status = str(track.get("status") or "PUBLICADO") if track else "PUBLICADO"
         track_title = str(track.get("title") or "Unknown track") if track else "Unknown track"
         artist_name = await self._resolve_artist_name(artist_id)
 
@@ -75,8 +77,10 @@ class MongoAnalyticsRepository:
             "user_id": user_id,
             "track_id": track_id,
             "artist_id": artist_id,
+            "album_id": album_id,
             "track_title": track_title,
             "artist_name": artist_name,
+            "track_status": track_status,
             "position_seconds": position_seconds,
             "counted_at": normalized_counted_at,
             "created_at": datetime.now(UTC),
@@ -108,8 +112,10 @@ class MongoAnalyticsRepository:
                 "$inc": {"plays": 1},
                 "$set": {
                     "artist_id": artist_id,
+                    "album_id": album_id,
                     "track_title": track_title,
                     "artist_name": artist_name,
+                    "status": track_status,
                     "updated_at": datetime.now(UTC),
                 },
                 "$setOnInsert": {"created_at": datetime.now(UTC)},
@@ -117,7 +123,7 @@ class MongoAnalyticsRepository:
             upsert=True,
         )
 
-        if artist_id:
+        if artist_id and track_status == "PUBLICADO":
             await self._artist_metrics.update_one(
                 {"artist_id": artist_id},
                 {
@@ -170,6 +176,7 @@ class MongoAnalyticsRepository:
         album_id: str,
         artist_id: str,
         title: str,
+        cover_asset_id: str | None,
         status: str,
         occurred_at: datetime,
     ) -> bool:
@@ -181,6 +188,7 @@ class MongoAnalyticsRepository:
                     "album_id": album_id,
                     "artist_id": artist_id,
                     "title": title,
+                    "cover_asset_id": cover_asset_id,
                     "status": status,
                     "last_event_id": event_id,
                     "updated_at": ensure_utc(occurred_at),
@@ -229,8 +237,10 @@ class MongoAnalyticsRepository:
             {
                 "$set": {
                     "artist_id": artist_id,
+                    "album_id": album_id,
                     "track_title": title,
                     "artist_name": artist_name,
+                    "track_status": status,
                 }
             },
         )
@@ -240,8 +250,10 @@ class MongoAnalyticsRepository:
             {
                 "$set": {
                     "artist_id": artist_id,
+                    "album_id": album_id,
                     "track_title": title,
                     "artist_name": artist_name,
+                    "status": status,
                     "plays": plays,
                     "updated_at": datetime.now(UTC),
                 },
@@ -279,7 +291,10 @@ class MongoAnalyticsRepository:
 
     async def get_artist_track_metrics(self, artist_id: str) -> list[dict[str, Any]]:
         """Return track metrics for an artist sorted by plays."""
-        cursor = self._track_metrics.find({"artist_id": artist_id}).sort("plays", -1)
+        cursor = self._track_metrics.find({
+            "artist_id": artist_id,
+            "$or": [{"status": "PUBLICADO"}, {"status": {"$exists": False}}],
+        }).sort("plays", -1)
         return await cursor.to_list(length=None)
 
     async def get_unique_listener_counts_by_track(self, artist_id: str) -> dict[str, int]:
@@ -363,12 +378,104 @@ class MongoAnalyticsRepository:
 
     async def get_top_tracks(self, limit: int) -> list[dict[str, Any]]:
         """Return globally ranked tracks."""
-        cursor = self._track_metrics.find({}).sort("plays", -1).limit(limit)
+        cursor = self._track_metrics.find({
+            "$or": [{"status": "PUBLICADO"}, {"status": {"$exists": False}}],
+        }).sort("plays", -1).limit(limit)
         return await cursor.to_list(length=limit)
 
     async def get_top_artists(self, limit: int) -> list[dict[str, Any]]:
         """Return globally ranked artists."""
-        cursor = self._artist_metrics.find({}).sort("plays", -1).limit(limit)
+        cursor = self._track_metrics.aggregate(
+            [
+                {
+                    "$match": {
+                        "$or": [{"status": "PUBLICADO"}, {"status": {"$exists": False}}],
+                        "artist_id": {"$exists": True, "$ne": None},
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$artist_id",
+                        "plays": {"$sum": "$plays"},
+                        "artist_name": {"$first": "$artist_name"},
+                        "track_count": {"$sum": 1},
+                    }
+                },
+                {"$match": {"track_count": {"$gt": 0}}},
+                {
+                    "$lookup": {
+                        "from": CATALOG_ARTISTS_COLLECTION,
+                        "localField": "_id",
+                        "foreignField": "artist_id",
+                        "as": "artist",
+                    }
+                },
+                {"$unwind": {"path": "$artist", "preserveNullAndEmptyArrays": True}},
+                {"$sort": {"plays": -1, "artist.display_name": 1, "artist_name": 1}},
+                {"$limit": limit},
+                {
+                    "$project": {
+                        "_id": 0,
+                        "artist_id": "$_id",
+                        "artist_name": {"$ifNull": ["$artist.display_name", "$artist_name"]},
+                        "plays": "$plays",
+                    }
+                },
+            ]
+        )
+        return await cursor.to_list(length=limit)
+
+    async def get_top_albums(self, limit: int) -> list[dict[str, Any]]:
+        """Return globally ranked published albums by summed track plays."""
+        cursor = self._track_metrics.aggregate(
+            [
+                {
+                    "$match": {
+                        "$or": [{"status": "PUBLICADO"}, {"status": {"$exists": False}}],
+                        "album_id": {"$exists": True, "$ne": None},
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$album_id",
+                        "plays": {"$sum": "$plays"},
+                        "artist_id": {"$first": "$artist_id"},
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": CATALOG_ALBUMS_COLLECTION,
+                        "localField": "_id",
+                        "foreignField": "album_id",
+                        "as": "album",
+                    }
+                },
+                {"$unwind": "$album"},
+                {"$match": {"album.status": "PUBLICADO"}},
+                {
+                    "$lookup": {
+                        "from": CATALOG_ARTISTS_COLLECTION,
+                        "localField": "artist_id",
+                        "foreignField": "artist_id",
+                        "as": "artist",
+                    }
+                },
+                {"$unwind": {"path": "$artist", "preserveNullAndEmptyArrays": True}},
+                {"$sort": {"plays": -1, "album.title": 1}},
+                {"$limit": limit},
+                {
+                    "$project": {
+                        "_id": 0,
+                        "album_id": "$_id",
+                        "artist_id": "$artist_id",
+                        "title": "$album.title",
+                        "cover_asset_id": "$album.cover_asset_id",
+                        "artist_name": "$artist.display_name",
+                        "plays": "$plays",
+                    }
+                },
+            ]
+        )
         return await cursor.to_list(length=limit)
 
     async def _resolve_artist_name(self, artist_id: str | None) -> str:
@@ -382,7 +489,19 @@ class MongoAnalyticsRepository:
     async def _rebuild_artist_metric(self, artist_id: str | None) -> None:
         if not artist_id:
             return
-        plays = await self._playback_events.count_documents({"artist_id": artist_id})
+        cursor = self._track_metrics.aggregate(
+            [
+                {
+                    "$match": {
+                        "artist_id": artist_id,
+                        "$or": [{"status": "PUBLICADO"}, {"status": {"$exists": False}}],
+                    }
+                },
+                {"$group": {"_id": None, "plays": {"$sum": "$plays"}}},
+            ]
+        )
+        rows = await cursor.to_list(length=1)
+        plays = int(rows[0].get("plays", 0)) if rows else 0
         artist_name = await self._resolve_artist_name(artist_id)
         await self._artist_metrics.update_one(
             {"artist_id": artist_id},

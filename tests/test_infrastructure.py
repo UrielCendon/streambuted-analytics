@@ -49,6 +49,7 @@ class FakeCollection:
         self.indexes = []
         self.update_one_calls = []
         self.update_many_calls = []
+        self.aggregate_calls = []
         self.find_one_result = None
         self.update_one_result = UpdateResult("inserted", 0)
         self.update_many_result = UpdateResult(None, 1)
@@ -77,7 +78,8 @@ class FakeCollection:
     async def distinct(self, *_args, **_kwargs):
         return self.distinct_result
 
-    def aggregate(self, *_args, **_kwargs):
+    def aggregate(self, *args, **_kwargs):
+        self.aggregate_calls.append(args)
         return FakeCursor(self.aggregate_rows)
 
     def find(self, *_args, **_kwargs):
@@ -363,6 +365,29 @@ def test_repository_upserts_snapshots_and_query_helpers() -> None:
         assert await repository.get_top_tracks(1) == [{"track_id": "track-1", "plays": 7}]
         assert await repository.get_top_artists(1) == [{"artist_id": "artist-1", "plays": 9}]
         assert await repository.get_unique_listener_counts_by_artists([]) == {}
+
+    asyncio.run(run())
+
+
+def test_repository_top_albums_accepts_legacy_albums_without_status() -> None:
+    async def run() -> None:
+        repository, client = build_repository()
+        collections = client.database.collections
+        collections["track_metrics"].aggregate_rows = [
+            {"album_id": "album-1", "artist_id": "artist-1", "title": "Noches", "plays": 8}
+        ]
+
+        await repository.get_top_albums(10)
+
+        aggregate_pipeline = collections["track_metrics"].aggregate_calls[0][0]
+        legacy_album_match = aggregate_pipeline[4]["$match"]
+
+        assert legacy_album_match == {
+            "$or": [
+                {"album.status": "PUBLICADO"},
+                {"album.status": {"$exists": False}},
+            ]
+        }
 
     asyncio.run(run())
 

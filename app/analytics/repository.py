@@ -451,7 +451,14 @@ class MongoAnalyticsRepository:
                     }
                 },
                 {"$unwind": "$album"},
-                {"$match": {"album.status": "PUBLICADO"}},
+                {
+                    "$match": {
+                        "$or": [
+                            {"album.status": "PUBLICADO"},
+                            {"album.status": {"$exists": False}},
+                        ]
+                    }
+                },
                 {
                     "$lookup": {
                         "from": CATALOG_ARTISTS_COLLECTION,

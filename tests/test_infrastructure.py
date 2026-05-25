@@ -342,11 +342,19 @@ def test_repository_upserts_snapshots_and_query_helpers() -> None:
         collections["playback_events"].count_result = 4
         collections["playback_events"].aggregate_rows = [{"_id": "track-1", "unique_listeners": 3}]
         collections["track_metrics"].find_rows = [{"track_id": "track-1", "plays": 7}]
-        collections["artist_metrics"].find_rows = [{"artist_id": "artist-1", "plays": 9}]
+        collections["track_metrics"].aggregate_rows = [{"artist_id": "artist-1", "plays": 9}]
         collections["activity_events"].distinct_result = ["u1", "u2"]
 
         assert await repository.upsert_artist_snapshot("event-a", "artist-1", "Ada", datetime.now(UTC))
-        assert await repository.upsert_album_snapshot("event-b", "album-1", "artist-1", "LP", "PUBLICADO", datetime.now(UTC))
+        assert await repository.upsert_album_snapshot(
+            "event-b",
+            "album-1",
+            "artist-1",
+            "LP",
+            None,
+            "PUBLICADO",
+            datetime.now(UTC),
+        )
         assert await repository.upsert_track_snapshot(
             "event-t",
             "track-1",

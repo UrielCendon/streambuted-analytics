@@ -36,7 +36,7 @@ def get_current_user(
 def require_admin(user: AuthenticatedUser) -> None:
     """Ensure the user has administrator permissions."""
     if user.role != UserRole.ADMIN:
-        raise AppError(403, "Forbidden", "Only administrators can access this endpoint.")
+        raise AppError(403, "Forbidden", "Solo los administradores pueden acceder a este recurso.")
 
 
 @router.get("/health")
@@ -83,7 +83,7 @@ async def get_artist_summary(
         and current_user.subject == artist_id
     )
     if current_user.role != UserRole.ADMIN and not is_own_artist_dashboard:
-        raise AppError(403, "Forbidden", "Artists can only access their own analytics.")
+        raise AppError(403, "Forbidden", "Los artistas solo pueden consultar sus propias analiticas.")
 
     return await analytics_service.get_artist_summary(artist_id)
 

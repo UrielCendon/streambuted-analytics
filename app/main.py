@@ -20,6 +20,7 @@ from app.errors import (
     validation_error_handler,
 )
 from app.events.consumer import AnalyticsEventConsumer
+from app.openapi import configure_openapi, register_swagger_docs
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,8 +77,34 @@ def create_app(
 
     app = FastAPI(
         title="StreamButed Analytics Service",
+        description=(
+            "Proyecciones de analitica para descubrimiento publico, dashboards de artista "
+            "y vistas administrativas."
+        ),
         version="1.0.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url="/api/v1/analytics/openapi.json",
         lifespan=lifespan,
+    )
+    register_swagger_docs(
+        app,
+        service_name="StreamButed Analytics Service",
+        docs_url="/api/v1/analytics/docs",
+        openapi_url="/api/v1/analytics/openapi.json",
+    )
+    configure_openapi(
+        app,
+        title="StreamButed Analytics Service",
+        version="1.0.0",
+        description=(
+            "Proyecciones de analitica para descubrimiento publico, dashboards de artista "
+            "y vistas administrativas alimentadas por eventos RabbitMQ."
+        ),
+        public_paths={
+            "/api/v1/analytics/discovery/summary",
+            "/api/v1/analytics/artists/{artist_id}/public-summary",
+        },
     )
     app.add_middleware(
         CORSMiddleware,
